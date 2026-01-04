@@ -7,37 +7,11 @@ robots:
     uri: radio://0/100/1M/E7E7E7E7B5 # second
     initial_position: [0.0, 0.0, 0.0]
     type: cf21  # see robot_types
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
-    # firmware_logging:
-    #   enabled: true
-    #   custom_topics:
-    #     topic_name3: 
-    #       frequency: 1
-    #       vars: ["acc.x", "acc.y"]
-    # reference_frame: "odom_cf231" # use a custom reference frame if no global coordinate system is available
 
-  cf5:
-    enabled: false
-    uri: radio://0/80/2M/E7E7E7E705
-    initial_position: [0.0, -0.5, 0.0]
-    type: cf21  # see robot_types
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
-    #firmware_logging:
-    #  custom_topics:
-    #    topic_name3: 
-    #      frequency: 1
-    #      vars: ["acc.x", "acc.y", "acc.z"]
-    # reference_frame: "odom_cf5" 
-
-# Definition of the various robot types
 robot_types:
   cf21:
     motion_capture:
-      tracking: "librigidbodytracker" # one of "vendor", "librigidbodytracker"
+      tracking: librigidbodytracker   # one of "vendor", "librigidbodytracker"
       # only if enabled; see motion_capture.yaml
       marker: default_single_marker
       dynamics: default
@@ -45,85 +19,121 @@ robot_types:
     battery:
       voltage_warning: 3.8  # V
       voltage_critical: 3.7 # V
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
-    #firmware_logging:
-    #   enabled: true
-    #   default_topics:
-    #   pose:
-    #     frequency: 1 # Hz
-    #   custom_topics:
-    #    topic_name3: 
-    #      frequency: 1
-    #      vars: ["acc.x", "acc.y", "acc.z"]
-    # reference_frame: "odom" 
 
-  cf21_mocap_deck:
-    motion_capture:
-      tracking: "librigidbodytracker" # one of "vendor", "librigidbodytracker"
-      # only if enabled; see motion_capture.yaml
-      marker: mocap_deck
-      dynamics: default
-    big_quad: false
-    battery:
-      voltage_warning: 3.8  # V
-      voltage_critical: 3.7 # V
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
-    #firmware_logging:
-    #   enabled: true
-    #   default_topics:
-    #   pose:
-    #     frequency: 1 # Hz
-    #   custom_topics:
-    #    topic_name3: 
-    #      frequency: 1
-    #      vars: ["acc.x", "acc.y", "acc.z"]
-    # reference_frame: "mocap" 
+    firmware_logging:
+      enabled: true
+      default_topics:
+        pose:
+          frequency: 70
+        status:
+          frequency: 1
+      custom_topics:
+        stateEstimate_acc:   # 매트랩로깅
+          frequency: 20
+          vars: [stateEstimate.ax, stateEstimate.ay, stateEstimate.az]
+        cf_F_input_raw:   # 매트랩로깅
+          frequency: 20
+          vars: [suWrenchObs.suWFx, suWrenchObs.suWFy, suWrenchObs.suWFz]
+        cf_F_input_scaled:   # 매트랩로깅
+          frequency: 20
+          vars: [suWrenchObs.suWFx_scaled, suWrenchObs.suWFy_scaled, suWrenchObs.suWFz_scaled]
+        cf_voltage: # 매트랩로깅. voltage 데이터임. hz를 높이니까 노이즈 껴서 필터를 검. 첫번째꺼는 그냥, 두번째꺼는 필터건 데이터
+          frequency: 1
+          vars: [pm.vbat, suWrenchObs.suV]
+        cf_setpoint_pos: # 매트랩로깅. 제어기에서 푸는 최종 위치 커맨드
+          frequency: 20
+          vars: [ctrltarget.x, ctrltarget.y, ctrltarget.z, ctrltarget.yaw_sp]
+        cf_Fext_MOB:        # MOB
+          frequency: 20
+          vars: [suWrenchObs.suFextX, suWrenchObs.suFextY, suWrenchObs.suFextZ]
+        cf_Fext_DOB:        # DOB
+          frequency: 20
+          vars: [suWrenchDOB.suFextX, suWrenchDOB.suFextY, suWrenchDOB.suFextZ]
+        su_cmd_dbg:
+          frequency: 20
+          vars: [su_cmd_dbg.use_vel_mode, su_cmd_dbg.cmd_fx]
+        stateEstimate_velocity:   # 매트랩로깅
+          frequency: 20
+          vars: [stateEstimate.vx, stateEstimate.vy, stateEstimate.vz]
+        vel_from_pos:   # 매트랩로깅
+          frequency: 20
+          vars: [suVelFromPos.vx, suVelFromPos.vy, suVelFromPos.vz]
+        kalman_q:        # Kalman attitude quaternion
+          frequency: 20
+          vars: [kalman.q0, kalman.q1, kalman.q2, kalman.q3]
+        kalman_qComp:    # Complementary attitude quaternion
+          frequency: 20
+          vars: [kalman.qComp0, kalman.qComp1, kalman.qComp2, kalman.qComp3]
+        kalman_Dstates:    # Complementary attitude quaternion
+          frequency: 20
+          vars: [kalman.stateD0, kalman.stateD1, kalman.stateD2]
 
-# global settings for all robots
-all:
-  # firmware logging for all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
-  firmware_logging:
-    enabled: true
-    default_topics:
-     # remove to disable default topic
-      pose:
-        frequency: 10 # Hz
-      status:
-        frequency: 1 # Hz
-    #custom_topics:
-    #  topic_name1:
-    #    frequency: 10 # Hz
-    #    vars: ["stateEstimateZ.x", "stateEstimateZ.y", "stateEstimateZ.z", "pm.vbat"]
-    #  topic_name2:
-    #    frequency: 1 # Hz
-    #    vars: ["stabilizer.roll", "stabilizer.pitch", "stabilizer.yaw"]
-  # firmware parameters for all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
-  firmware_params:
-    commander:
-      enHighLevel: 1
-    stabilizer:
-      estimator: 2 # 1: complementary, 2: kalman
-      controller: 2 # 1: PID, 2: mellinger
-    # ring:
-    #   effect: 16 # 6: double spinner, 7: solid color, 16: packetRate
-    #   solidBlue: 255 # if set to solid color
-    #   solidGreen: 0 # if set to solid color
-    #   solidRed: 0 # if set to solid color
-    #   headlightEnable: 0
-    locSrv:
-      extPosStdDev: 1e-3
-      extQuatStdDev: 0.5e-1
-    # kalman:
-    #   resetEstimation: 1
-  # reference frame for on-board state-estimate of all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
-  reference_frame: "world"
-  broadcasts:
-    num_repeats: 15 # number of times broadcast commands are repeated
-    delay_between_repeats_ms: 1 # delay in milliseconds between individual repeats
+    firmware_params:
+      commander:
+        enHighLevel: 1
+      stabilizer:   # 제어기랑 상태관측기 고를 수 있음
+        estimator: 2 # 1: complementary, 2: kalman
+        controller: 1 # 1: PID, 2: mellinger, 3: INDI, 4: Brescianini, 5: Lee
+      locSrv:
+        extPosStdDev: 1e-3
+        extQuatStdDev: 0.5e-1
+      # ================================================
+      #     Custom modules
+      # ================================================
+      su_cmd:
+        use_vel_mode: 0.0    # 0: 그냥 위치로 씀, 1: 들어오는 걸 vel로 보고 적분
+        adm_M: 0.0           # 어드미턴스 M
+        adm_D: 0.0           # 어드미턴스 D
+        adm_K: 0.0           # 어드미턴스 K
+        cmd_fx: 0.0
+      su_platform:
+        mass: 0.0393          # 또는 su_mass 기본값
+        Jxx: 1.9e-5
+        Jyy: 1.9e-5
+        Jzz: 3.0e-5
+      su_wrench:
+        Kf: 2.0               # 선운동량 관측 이득
+        Ktau: 2.0             # 각운동량 관측 이득
+        deadzone_F: 0.0
+        deadzone_T: 0.0
+        voltage_model_a: 0.0
+        voltage_model_b: 1.0
+        vbat_alpha: 0.005
+        dt_alpha: 0.01
+        mob_alpha: 1.0
+        dob_wn: 7.0
+        dob_zeta: 0.707
+
+      kalman:
+        resetEstimation: 0
+        # SEUK: complementary attitude 관련
+        # 0: Kalman attitude 사용 (기존과 동일)
+        # 1: complementary attitude로 stateEstimate.* (roll/pitch/yaw, q, vel, acc) 출력
+        useCompAttOut: 0
+
+        # 0: Kalman 내부 q/R는 원래대로 두고, 출력만 complementary 사용
+        # 1: Kalman 내부 q/R도 complementary에 동기화 (내부 dynamics도 comp 기반)
+        slaveAttToComp: 0
+
+
+      posCtlPid:
+        xKi: 0.0
+        yKi: 0.0
+        zKi: 0.0
+      velCtlPid:
+        vxKi: 0.0
+        vyKi: 0.0
+        vzKi: 0.0
+
+      pid_attitude:
+        roll_ki: 0.0
+        pitch_ki: 0.0
+        yaw_ki: 0.0
+      pid_rate:
+        roll_ki: 0.0
+        pitch_ki: 0.0
+        yaw_ki: 5.0
+
+    broadcasts:
+      num_repeats: 1 # number of times broadcast commands are repeated
+      delay_between_repeats_ms: 1 # delay in milliseconds between individual repeats
