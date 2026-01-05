@@ -73,7 +73,7 @@ robot_types:
         enHighLevel: 1
       stabilizer:   # 제어기랑 상태관측기 고를 수 있음
         estimator: 2 # 1: complementary, 2: kalman
-        controller: 1 # 1: PID, 2: mellinger, 3: INDI, 4: Brescianini, 5: Lee
+        controller: 4 # 1: PID, 2: mellinger, 3: INDI, 4: Brescianini, 5: Lee
       locSrv:
         extPosStdDev: 1e-3
         extQuatStdDev: 0.5e-1

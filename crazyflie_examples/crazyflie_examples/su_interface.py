@@ -1,86 +1,172 @@
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+
 from std_msgs.msg import String, Float32
+
+from rcl_interfaces.msg import Parameter as ParamMsg
+from rcl_interfaces.msg import ParameterValue
+from rcl_interfaces.msg import ParameterType
+from rcl_interfaces.srv import SetParameters
+
 from crazyflie_py import Crazyswarm
 
 
 class SuInterface(Node):
+    """
+    - o/p : Crazyradio direct (Crazyswarm) arm/disarm 유지
+    - i/j/k/l : /crazyflie_server 파라미터 서비스로 세팅 (ros2 param set 과 동일 경로)
+
+    Topics:
+      - keyboard_input (std_msgs/String): 'o' arm, 'p' disarm
+      - su/use_vel_mode (std_msgs/Float32): toggle 0/1
+      - su/cmd_force    (std_msgs/Float32): Fx command
+
+    Target node:
+      - /crazyflie_server
+
+    Target params (same as your working CLI):
+      - cf2.params.su_cmd.use_vel_mode
+      - cf2.params.su_cmd.cmd_fx
+    """
+
     def __init__(self):
-        # 먼저 Crazyswarm 초기화 → 내부적으로 rclpy.init() 실행됨
+        # -----------------------
+        # 1) Crazyswarm 먼저 (기존 방식 유지)
+        # -----------------------
+        # Crazyswarm()가 rclpy.init()을 내부에서 수행하는 환경이 많아서
+        # main()에서는 rclpy.init()을 호출하지 않는 구조로 갑니다.
         self.swarm = Crazyswarm()
         self.timeHelper = self.swarm.timeHelper
         self.cf = self.swarm.allcfs.crazyflies[0]
 
-        # 그 다음 Node 생성자 호출 (충돌 없음)
-        super().__init__('su_interface')
+        super().__init__("su_interface")
 
-        # 키보드 입력 (o/p)
-        self.subscription = self.create_subscription(
-            String,
-            'keyboard_input',
-            self.keyboard_callback,
-            10
-        )
+        # -----------------------
+        # 2) Config
+        # -----------------------
+        self.server_node_name = "/crazyflie_server"
+        self.cf_prefix = "cf2.params"  # 필요시 바꾸기
 
-        # ★ vel_mode 토픽
-        self.vel_mode_sub = self.create_subscription(
-            Float32,
-            'su/use_vel_mode',
-            self.vel_mode_callback,
-            10
-        )
+        self.param_use_vel_mode = f"{self.cf_prefix}.su_cmd.use_vel_mode"
+        self.param_cmd_fx       = f"{self.cf_prefix}.su_cmd.cmd_fx"
 
-        # ★ force 토픽 (j/k/l 에서 오는 힘 명령)
-        self.force_sub = self.create_subscription(
-            Float32,
-            'su/cmd_force',
-            self.force_callback,
-            10
-        )
+        # -----------------------
+        # 3) Subscriptions
+        # -----------------------
+        self.create_subscription(String,  "keyboard_input", self.keyboard_callback, 10)
+        self.create_subscription(Float32, "su/use_vel_mode", self.vel_mode_callback, 10)
+        self.create_subscription(Float32, "su/cmd_force",    self.force_callback,    10)
 
-        self.get_logger().info("su_interface node ready.")
+        # -----------------------
+        # 4) Param service client
+        # -----------------------
+        self.param_client = self.create_client(SetParameters, f"{self.server_node_name}/set_parameters")
+        self.get_logger().info(f"Waiting for {self.server_node_name}/set_parameters ...")
+        if not self.param_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().error(
+                f"Parameter service not available: {self.server_node_name}/set_parameters\n"
+                f"-> Is crazyflie_server running?"
+            )
+
+        # -----------------------
+        # 5) Rate limit / deadband
+        # -----------------------
+        self.fx_deadband = 0.02     # [N]
+        self.fx_rate_hz  = 20.0
+        self._last_fx = None
+        self._last_fx_time = self.get_clock().now()
+
+        self._last_toggle = None
+
+        self.get_logger().info("su_interface ready (arm via Crazyswarm, params via ROS param service).")
 
     # ======================
-    # 콜백들
+    # Helpers
     # ======================
+    def _set_param_double(self, name: str, value: float) -> bool:
+        """Set a double param on /crazyflie_server via SetParameters."""
+        if not self.param_client.service_is_ready():
+            self.get_logger().warn("param service not ready")
+            return False
 
+        p = ParamMsg()
+        p.name = name
+        p.value = ParameterValue(
+            type=ParameterType.PARAMETER_DOUBLE,
+            double_value=float(value),
+        )
+
+        req = SetParameters.Request()
+        req.parameters = [p]
+
+        future = self.param_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+
+        if future.result() is None:
+            self.get_logger().error(f"SetParameters failed (no response) for {name}")
+            return False
+
+        result = future.result().results[0]
+        if not result.successful:
+            self.get_logger().error(f"Failed to set {name}: {result.reason}")
+            return False
+
+        return True
+
+    # ======================
+    # Callbacks
+    # ======================
     def keyboard_callback(self, msg: String):
         if not msg.data:
             return
-        input_char = msg.data[0]
-        if input_char == 'o':
-            self.cf.arm(True)
-            self.get_logger().info("ARM command sent.")
-        elif input_char == 'p':
-            self.cf.arm(False)
-            self.get_logger().info("DISARM command sent.")
+        c = msg.data[0]
 
-    # ★ vel_mode 콜백: 펌웨어 파라미터 su_cmd.use_vel_mode 설정
+        # ✅ 기존 요구: o/p는 ARM/DISARM 토글 유지
+        try:
+            if c == "o":
+                self.cf.arm(True)
+                self.get_logger().info("ARM command sent (Crazyswarm).")
+            elif c == "p":
+                self.cf.arm(False)
+                self.get_logger().info("DISARM command sent (Crazyswarm).")
+        except Exception as e:
+            self.get_logger().error(f"Failed to send arm/disarm: {e}")
+
     def vel_mode_callback(self, msg: Float32):
-        val = float(msg.data)
-        self.get_logger().info(f"[VEL_CB] recv {val}")
-        try:
-            # Crazyswarm / crazyflie_py 에서 사용하는 방식
-            self.cf.setParam("su_cmd.use_vel_mode", val)
-            self.get_logger().info(f"Set su_cmd.use_vel_mode = {val}")
-        except Exception as e:
-            self.get_logger().error(f"Failed to set su_cmd.use_vel_mode: {e}")
+        raw = float(msg.data)
+        toggle = 1.0 if raw >= 0.5 else 0.0
 
-    # ★ force 콜백: 펌웨어 파라미터 su_cmd.cmd_fx 설정
+        # only send if changed
+        if self._last_toggle is not None and toggle == self._last_toggle:
+            return
+        self._last_toggle = toggle
+
+        ok = self._set_param_double(self.param_use_vel_mode, toggle)
+        if ok:
+            self.get_logger().info(f"Set {self.param_use_vel_mode} = {toggle:.0f}")
+
     def force_callback(self, msg: Float32):
-        val = float(msg.data)
-        self.get_logger().info(f"[FORCE_CB] recv {val}")
-        try:
-            # su_cmd_integrator.c 에서 선언한 파라미터:
-            #   PARAM_ADD(PARAM_FLOAT, cmd_fx, &su_cmd_fx)
-            # 여기에 직접 써줌 → su_cmd_dbg.cmd_fx 로 로깅됨
-            self.cf.setParam("su_cmd.cmd_fx", val)
-            self.get_logger().info(f"Set su_cmd.cmd_fx = {val}")
-        except Exception as e:
-            self.get_logger().error(f"Failed to set su_cmd.cmd_fx: {e}")
+        fx = float(msg.data)
+        now = self.get_clock().now()
 
-    # 착륙 및 종료
+        # deadband
+        if self._last_fx is not None and abs(fx - self._last_fx) < self.fx_deadband:
+            return
+
+        # rate limit
+        if (now - self._last_fx_time).nanoseconds < int(1e9 / self.fx_rate_hz):
+            return
+
+        self._last_fx = fx
+        self._last_fx_time = now
+
+        ok = self._set_param_double(self.param_cmd_fx, fx)
+        if ok:
+            self.get_logger().info(f"Set {self.param_cmd_fx} = {fx:.3f}")
+
     def shutdown(self):
+        # Best-effort safe
         try:
             self.get_logger().info("Landing before shutdown...")
             self.cf.land(targetHeight=0.04, duration=2.5)
@@ -88,8 +174,14 @@ class SuInterface(Node):
         except Exception as e:
             self.get_logger().error(f"Error during landing: {e}")
 
+        try:
+            self.cf.arm(False)
+        except Exception:
+            pass
+
 
 def main(args=None):
+    # ✅ Crazyswarm()가 rclpy.init을 내부에서 하는 경우가 많아서 여기서는 호출하지 않음
     node = SuInterface()
     try:
         rclpy.spin(node)
@@ -98,9 +190,11 @@ def main(args=None):
     finally:
         node.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
