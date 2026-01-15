@@ -13,10 +13,6 @@ def parse_yaml(context):
     crazyflies_yaml = LaunchConfiguration('crazyflies_yaml_file').perform(context)
     with open(crazyflies_yaml, 'r') as file:
         crazyflies = yaml.safe_load(file)
-    # store the fileversion
-    fileversion = 1
-    if "fileversion" in crazyflies:
-        fileversion = crazyflies["fileversion"]
 
     # server params
     server_yaml = os.path.join(
@@ -33,7 +29,7 @@ def parse_yaml(context):
         get_package_share_directory('crazyflie'),
         'urdf',
         'crazyflie_description.urdf')
-    
+
     with open(urdf, 'r') as f:
         robot_desc = f.read()
 
@@ -48,9 +44,7 @@ def parse_yaml(context):
     motion_capture_params['rigid_bodies'] = dict()
     for key, value in crazyflies['robots'].items():
         type = crazyflies['robot_types'][value['type']]
-        if value['enabled'] and \
-            ((fileversion == 1 and type['motion_capture']['enabled']) or \
-            ((fileversion >= 2 and type['motion_capture']['tracking'] == "librigidbodytracker"))):
+        if value['enabled'] and type['motion_capture']['enabled']:
             motion_capture_params['rigid_bodies'][key] =  {
                     'initial_position': value['initial_position'],
                     'marker': type['motion_capture']['marker'],
@@ -59,7 +53,7 @@ def parse_yaml(context):
 
     # copy relevent settings to server params
     server_params[1]['poses_qos_deadline'] = motion_capture_params['topics']['poses']['qos']['deadline']
-    
+
     return [
         Node(
             package='motion_capture_tracking',
@@ -101,7 +95,7 @@ def generate_launch_description():
         get_package_share_directory('crazyflie'),
         'config',
         'crazyflies.yaml')
-    
+
     default_motion_capture_yaml_path = os.path.join(
         get_package_share_directory('crazyflie'),
         'config',
@@ -116,13 +110,13 @@ def generate_launch_description():
         get_package_share_directory('crazyflie'),
         'config',
         'teleop.yaml')
-    
+
     return LaunchDescription([
-        DeclareLaunchArgument('crazyflies_yaml_file', 
+        DeclareLaunchArgument('crazyflies_yaml_file',
                               default_value=default_crazyflies_yaml_path),
-        DeclareLaunchArgument('motion_capture_yaml_file', 
+        DeclareLaunchArgument('motion_capture_yaml_file',
                               default_value=default_motion_capture_yaml_path),
-        DeclareLaunchArgument('rviz_config_file', 
+        DeclareLaunchArgument('rviz_config_file',
                               default_value=default_rviz_config_path),
         DeclareLaunchArgument('backend', default_value='cpp'),
         DeclareLaunchArgument('debug', default_value='False'),
@@ -175,5 +169,11 @@ def generate_launch_description():
             parameters=[{
                 "use_sim_time": PythonExpression(["'", LaunchConfiguration('backend'), "' == 'sim'"]),
             }]
+        ),
+        Node(
+            package='crazyflie_examples',
+            executable='su_interface',
+            name='su_interface',
+            output='screen',
         ),
     ])
